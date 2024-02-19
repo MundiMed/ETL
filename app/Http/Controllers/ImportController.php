@@ -8,7 +8,7 @@ ini_set('memory_limit', '-1');
 set_time_limit(0);
  
 class ImportController extends Controller
-{ 
+{
     public function truncateTables(){
         DB::connection('mysql_mundimed_v1')->select('call sp_truncate_all_tables()');
     }
