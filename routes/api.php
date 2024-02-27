@@ -22,7 +22,7 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
 
 
 //Route::get('/search/{cep}', [CepController::class, 'search']);
-/*
+//*
 Route::controller(CepController::class)->group(function () {
     Route::get('/cep-search/{cep}', 'show')->name('show');
     Route::post('cep-update', [CepController::class, 'update']);

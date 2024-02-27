@@ -33,6 +33,7 @@ class ImportController extends Controller
             foreach ($tables as $key => $tab) {
                 $db = substr($tab,0,8);
                 $tb = substr_replace($tab, "", 0, 8);
+                Log::debug('Iniciado tabela '.$tb);
                 switch ($db) {
                     case 'xdb_ace_': $this->conn_acervo($db, $tb, $i); break;
                     case 'xdb_cre_': $this->conn_credenciados($db, $tb, $i); break;
