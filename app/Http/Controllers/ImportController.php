@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 use Illuminate\Http\Request;
+use Illuminate\Database\QueryException;
 use DB;
 use Log;
 ini_set('memory_limit', '-1');
@@ -10,7 +11,16 @@ set_time_limit(0);
 class ImportController extends Controller
 {
     public function truncateTables(){
-        DB::connection('mysql_mundimed_v1')->select('call sp_truncate_all_tables()');
+        
+        try {
+            DB::connection('mysql_mundimed_v1')->select('call sp_truncate_all_tables()');
+        } catch (\Throwable $th) {
+            Log::error("Erro ao acessar o banco de dados: " . $th->getMessage());
+            Log::error("Erro ao truncar: " . $th->getMessage());
+            return response()->json(['erro' => 'Ocorreu um erro na operação com o banco de dados.'], 500);
+
+        }
+
     }
 
     public function index()
@@ -18,42 +28,42 @@ class ImportController extends Controller
         $hi = new \DateTime();
         $hi = $hi->format('Y-m-d H:i:s');
 
-        
-        $tables = DB::connection('mysql_mundimed_v1')->select('SHOW TABLES LIKE "xdb%"');
-        $tables = array_map('current', $tables);
-       
-        $qtd = intval(env('SYSTEMS_QUANTITY'));
-       
-        for($i = 1; $i<=$qtd;$i++){
-
-            $now = new \DateTime();
-            $now = $now->format('Y-m-d H:i:s');    
-            Log::debug('Iniciado sistema '.$i.' em '.$now);
-            
-            foreach ($tables as $key => $tab) {
-                $db = substr($tab,0,8);
-                $tb = substr_replace($tab, "", 0, 8);
-                Log::debug('Iniciado tabela '.$tb);
-                switch ($db) {
-                    case 'xdb_ace_': $this->conn_acervo($db, $tb, $i); break;
-                    case 'xdb_cre_': $this->conn_credenciados($db, $tb, $i); break;
-                    case 'xdb_med_': $this->conn_medicamentos($db, $tb, $i); break;
-                    case 'xdb_pre_': $this->conn_precos($db, $tb, $i); break;
-                    default: break;
+        try {
+            //code...
+            $tables = DB::connection('mysql_mundimed_v1')->select('SHOW TABLES LIKE "xdb%"');
+            $tables = array_map('current', $tables);
+           
+            $qtd = intval(env('SYSTEMS_QUANTITY'));
+           
+            for($i = 1; $i<=$qtd;$i++){
+    
+                $now = new \DateTime();
+                $now = $now->format('Y-m-d H:i:s');    
+                Log::debug('Iniciado sistema '.$i.' em '.$now);
+                
+                foreach ($tables as $key => $tab) {
+                    $db = substr($tab,0,8);
+                    $tb = substr_replace($tab, "", 0, 8);
+                    Log::debug('Iniciado sistema '. $i.' na tabela '.$db.$tb);
+                    switch ($db) {
+                        case 'xdb_ace_': $this->conn_acervo($db, $tb, $i); break;
+                        case 'xdb_cre_': $this->conn_credenciados($db, $tb, $i); break;
+                        case 'xdb_med_': $this->conn_medicamentos($db, $tb, $i); break;
+                        case 'xdb_pre_': $this->conn_precos($db, $tb, $i); break;
+                        default: break;
+                    }
                 }
-            }
-        }        
-
-        $hf = new \DateTime();
-        $hf = $hf->format('Y-m-d H:i:s');
+            }        
+    
+            $hf = new \DateTime();
+            $hf = $hf->format('Y-m-d H:i:s');
+         
+            Log::debug('Iniciado em '.$hi.' e conluído em '.$hf);
+        } catch (\Throwable $th) {
+            Log::error("Erro ao identificar todas as tabelas: " . $th->getMessage());
+            return response()->json(['erro' => 'Ocorreu um erro na operação com o banco de dados.'], 500);
+        }
      
-        Log::debug('Iniciado em '.$hi.' e conluído em '.$hf);
-/*      print_r('Iniciado em: ');
-        print_r($hi);
-        print_r('<br>');
-        print_r('Concluído em: ');
-        print_r($hf);
-//*/        
     }
 
     public function conn_acervo($db, $tb, $systemId){
@@ -61,7 +71,7 @@ class ImportController extends Controller
         $field = '';
         
         switch ($tb) {
-            case 'acervo_imovel': $field = 'imovel_cadastro_imo_id';break; 
+            case 'acervo_imovel': $field = 'moa_sequencia';break; 
             case 'cad_geral_acervo': $field = 'cad_geral_cad_codigo';break;
             case 'mov_orcamento_acervo': $field = 'mov_orcamento_os_orc_codigo';break;
             case 'mov_os_acervo': $field = 'mov_os_os_codigo';break;
@@ -69,8 +79,13 @@ class ImportController extends Controller
             case 'mov_pedido_acervo': $field = 'mov_pedido_id';break;
             default:break;
         }       
+        try {
+            $value = DB::connection('mysql_mundimed_v1')->table($db.$tb)->select($field)->where('system_id', $systemId)->orderBy($field, 'desc')->limit(1)->first();
+        } catch (\Throwable $th) {
+            Log::error("Erro ao acessar o banco de dados: " . $th->getMessage());
+            return response()->json(['erro' => 'Ocorreu um erro na operação com o banco de dados.'], 500);
         
-        $value = DB::connection('mysql_mundimed_v1')->table($db.$tb)->select($field)->where('system_id', $systemId)->orderBy($field, 'desc')->limit(1)->first();
+        }
         
         if($value?->$field === null){
             $val = 0;
@@ -84,7 +99,15 @@ class ImportController extends Controller
             $dados = $dados->where($field,'>',$val);
         }
         
-        $dados = $dados->orderBy($field, 'asc')->get();
+        
+        try {
+            $dados = $dados->orderBy($field, 'asc')->get();
+            
+        } catch (\Throwable $th) {
+            Log::error("Erro ao acessar o banco de dados: " . $th->getMessage());
+            Log::error("Erro na " . $db.$tb);
+            return response()->json(['erro' => 'Ocorreu um erro na operação com o banco de dados.'], 500);      
+        }
         
         $inserts = $dados->map(function ($item) use ($systemId) {
             $arrayItem = (array) $item;
@@ -95,7 +118,13 @@ class ImportController extends Controller
         $parts = array_chunk($inserts, 1000);
         
         foreach ($parts as $part) {
-            DB::connection('mysql_mundimed_v1')->table($db.$tb)->insert($part);
+            
+            try {
+                DB::connection('mysql_mundimed_v1')->table($db.$tb)->insert($part);
+            } catch (\Throwable $th) {
+                Log::error("Erro ao acessar o banco de dados: " . $th->getMessage());
+                Log::error("Erro na " . $db.$tb." -> ". $part);
+                return response()->json(['erro' => 'Ocorreu um erro na operação com o banco de dados.'], 500);                  }
         }
     }
 
@@ -133,7 +162,13 @@ class ImportController extends Controller
                 default:break;
             }   
 
-            $value = DB::connection('mysql_mundimed_v1')->table($db.$tb)->select($field)->where('system_id', $systemId)->orderBy($field, 'desc')->limit(1)->first();
+            try {
+                $value = DB::connection('mysql_mundimed_v1')->table($db.$tb)->select($field)->where('system_id', $systemId)->orderBy($field, 'desc')->limit(1)->first();
+            } catch (\Throwable $th) {
+                Log::error("Erro ao acessar o banco de dados: " . $th->getMessage());
+                Log::error("Erro na " . $db.$tb);
+                return response()->json(['erro' => 'Ocorreu um erro na operação com o banco de dados.'], 500);      
+            }
             
             if($value?->$field === null){
                 $val = 0;
@@ -143,12 +178,19 @@ class ImportController extends Controller
             
             $dados = DB::connection('mysql_mundimed_credenciados')->table($tb);
             
+            
             if($val > 0){
                 $dados = $dados->where($field,'>',$val);
-            }
+            }            
             
-            $dados = $dados->orderBy($field, 'asc')->get();
-        
+            try {
+                $dados = $dados->orderBy($field, 'asc')->get();
+                
+            } catch (\Throwable $th) {
+                Log::error("Erro ao acessar o banco de dados: " . $th->getMessage());
+                Log::error("Erro na " . $db.$tb);
+                return response()->json(['erro' => 'Ocorreu um erro na operação com o banco de dados.'], 500);      
+            }
             $inserts = $dados->map(function ($item) use ($systemId) {
                 $arrayItem = (array) $item;
                 $arrayItem['system_id'] = $systemId;
@@ -158,7 +200,13 @@ class ImportController extends Controller
             $parts = array_chunk($inserts, 1000);
             
             foreach ($parts as $part) {
-                DB::connection('mysql_mundimed_v1')->table($db.$tb)->insert($part);
+                try {
+                    DB::connection('mysql_mundimed_v1')->table($db.$tb)->insert($part);
+                } catch (\Throwable $th) {
+                    Log::error("Erro ao acessar o banco de dados: " . $th->getMessage());
+                    Log::error("Erro na " . $db.$tb." -> ". $part);
+                    return response()->json(['erro' => 'Ocorreu um erro na operação com o banco de dados.'], 500);                
+                }
             }
         }
     }
@@ -239,8 +287,14 @@ class ImportController extends Controller
         
         if($isValid){
 
-            $value = DB::connection('mysql_mundimed_v1')->table($db.$tb)->select($field)->where('system_id', $systemId)->orderBy($field, 'desc')->limit(1)->first();
-            
+
+            try {
+                $value = DB::connection('mysql_mundimed_v1')->table($db.$tb)->select($field)->where('system_id', $systemId)->orderBy($field, 'desc')->limit(1)->first();
+            } catch (\Throwable $th) {
+                Log::error("Erro ao acessar o banco de dados: " . $th->getMessage());
+                Log::error("Erro na " . $db.$tb);
+                return response()->json(['erro' => 'Ocorreu um erro na operação com o banco de dados.'], 500);      
+            }
             if($value?->$field === null){
                 $val = 0;
             }else{
@@ -252,7 +306,14 @@ class ImportController extends Controller
             if($val > 0){
                 $dados = $dados->where($field,'>',$val);
             }        
-            $dados = $dados->orderBy($field, 'asc')->get();
+            
+            try {
+                $dados = $dados->orderBy($field, 'asc')->get();
+            } catch (\Throwable $th) {
+                Log::error("Erro ao acessar o banco de dados: " . $th->getMessage());
+                Log::error("Erro na " . $db.$tb);
+                return response()->json(['erro' => 'Ocorreu um erro na operação com o banco de dados.'], 500);       
+            }
     
             $inserts = $dados->map(function ($item) use ($systemId) {
                 $arrayItem = (array) $item;
@@ -263,7 +324,13 @@ class ImportController extends Controller
             $parts = array_chunk($inserts, 1000);
             
             foreach ($parts as $part) {
-                DB::connection('mysql_mundimed_v1')->table($db.$tb)->insert($part);
+                
+                try {
+                    DB::connection('mysql_mundimed_v1')->table($db.$tb)->insert($part);
+                } catch (\Throwable $th) {
+                    Log::error("Erro ao acessar o banco de dados: " . $th->getMessage());
+                    Log::error("Erro na " . $db.$tb." -> ".$part);
+                    return response()->json(['erro' => 'Ocorreu um erro na operação com o banco de dados.'], 500);                      }
             }
         }
     }
@@ -291,8 +358,14 @@ class ImportController extends Controller
                 default:break;
             }   
             
-            $value = DB::connection('mysql_mundimed_v1')->table($db.$tb)->select($field)->where('system_id', $systemId)->orderBy($field, 'desc')->limit(1)->first();
             
+            try {
+                $value = DB::connection('mysql_mundimed_v1')->table($db.$tb)->select($field)->where('system_id', $systemId)->orderBy($field, 'desc')->limit(1)->first();
+            } catch (\Throwable $th) {
+                Log::error("Erro ao acessar o banco de dados: " . $th->getMessage());
+                Log::error("Erro na " . $db.$tb);
+                return response()->json(['erro' => 'Ocorreu um erro na operação com o banco de dados.'], 500);      
+            }
             if($value?->$field === null){
                 $val = 0;
             }else{
@@ -305,7 +378,14 @@ class ImportController extends Controller
                 $dados = $dados->where($field,'>',$val);
             }
             
-            $dados = $dados->orderBy($field, 'asc')->get();
+            
+            try {
+                $dados = $dados->orderBy($field, 'asc')->get();
+            } catch (\Throwable $th) {
+                Log::error("Erro ao acessar o banco de dados: " . $th->getMessage());
+                Log::error("Erro na " . $db.$tb);
+                return response()->json(['erro' => 'Ocorreu um erro na operação com o banco de dados.'], 500);                  
+            }
             
             $inserts = $dados->map(function ($item) use ($systemId) {
                 $arrayItem = (array) $item;
@@ -314,7 +394,14 @@ class ImportController extends Controller
             })->toArray();        
             $parts = array_chunk($inserts, 1000);
             foreach ($parts as $part) {
-                DB::connection('mysql_mundimed_v1')->table($db.$tb)->insert($part);
+                
+                try {
+                    DB::connection('mysql_mundimed_v1')->table($db.$tb)->insert($part);
+                } catch (\Throwable $th) {
+                    Log::error("Erro ao acessar o banco de dados: " . $th->getMessage());
+                    Log::error("Erro na " . $db.$tb." -> ". $part);
+                    return response()->json(['erro' => 'Ocorreu um erro na operação com o banco de dados.'], 500);      
+                }
             }
         }
     }
